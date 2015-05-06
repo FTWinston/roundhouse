@@ -158,23 +158,29 @@ namespace roundhouse.migrators
             Log.bound_to(this).log_an_info_event_containing(" Versioning {0} database with version {1} based on {2}.", database.database_name, repository_version, repository_path);
             return database.insert_version_and_get_version_id(repository_path, repository_version);
         }
-
+        bool always_ignore_one_time_scripts_that_have_already_been_run = true;
         public bool run_sql(string sql_to_run, string script_name, bool run_this_script_once, bool run_this_script_every_time, long version_id, Environment environment, string repository_version, string repository_path, ConnectionType connection_type)
         {
             bool this_sql_ran = false;
 
-            if (this_is_a_one_time_script_that_has_changes_but_has_already_been_run(script_name, sql_to_run, run_this_script_once))
+            if (always_ignore_one_time_scripts_that_have_already_been_run && this_script_has_run_already(script_name) && run_this_script_once)
             {
-                if (error_on_one_time_script_changes)
-                {
-                    database.rollback();
-                    string error_message = string.Format("{0} has changed since the last time it was run. By default this is not allowed - scripts that run once should never change. To change this behavior to a warning, please set warnOnOneTimeScriptChanges to true and run again. Stopping execution.", script_name);
-                    record_script_in_scripts_run_errors_table(script_name, sql_to_run, sql_to_run, error_message, repository_version, repository_path);
-                    database.close_connection();
-                    throw new Exception(error_message);
-                }
-                Log.bound_to(this).log_a_warning_event_containing("{0} is a one time script that has changed since it was run.", script_name);
+                Log.bound_to(this).log_an_info_event_containing(" Skipped {0} - {1}.", script_name, run_this_script_once ? "One time script" : "No changes were found to run");
+                return this_sql_ran;
             }
+            else
+                if (this_is_a_one_time_script_that_has_changes_but_has_already_been_run(script_name, sql_to_run, run_this_script_once))
+                {
+                    if (error_on_one_time_script_changes)
+                    {
+                        database.rollback();
+                        string error_message = string.Format("{0} has changed since the last time it was run. By default this is not allowed - scripts that run once should never change. To change this behavior to a warning, please set warnOnOneTimeScriptChanges to true and run again. Stopping execution.", script_name);
+                        record_script_in_scripts_run_errors_table(script_name, sql_to_run, sql_to_run, error_message, repository_version, repository_path);
+                        database.close_connection();
+                        throw new Exception(error_message);
+                    }
+                    Log.bound_to(this).log_a_warning_event_containing("{0} is a one time script that has changed since it was run.", script_name);
+                }
 
             if (this_is_an_environment_file_and_its_in_the_right_environment(script_name, environment)
                 && this_script_should_run(script_name, sql_to_run, run_this_script_once, run_this_script_every_time))
